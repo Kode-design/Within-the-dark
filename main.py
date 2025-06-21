@@ -66,6 +66,7 @@ HAZARD_DAMAGE = 10
 CLIMB_SPEED = 4
 DAMAGE_NUMBER_LIFETIME = 700
 RAIN_RATE = 0.3  # probability of spawning a drop each frame
+MINIMAP_TOGGLE_KEY = pygame.K_m
 
 # --- Transition Variables ---
 transition_phase = None
@@ -118,6 +119,7 @@ MINIMAP_WIDTH = int(LEVEL_WIDTH * MINIMAP_SCALE)
 MINIMAP_HEIGHT = int(LEVEL_HEIGHT * MINIMAP_SCALE)
 minimap_surface = pygame.Surface((MINIMAP_WIDTH, MINIMAP_HEIGHT))
 explored_tiles = set()
+show_minimap = True
 
 # Default containers so non-gameplay states don't crash before `game_start()`
 all_sprites = pygame.sprite.Group()
@@ -687,8 +689,11 @@ class SoulBolt(pygame.sprite.Sprite):
 
 class Crosshair(pygame.sprite.Sprite):
     def __init__(self):
-        super().__init__(); self.image = pygame.Surface([20, 20], pygame.SRCALPHA)
-        pygame.draw.line(self.image, CROSSHAIR_COLOR, (0, 10), (20, 10), 2); pygame.draw.line(self.image, CROSSHAIR_COLOR, (10, 0), (10, 20), 2)
+        super().__init__()
+        self.image = pygame.Surface([20, 20], pygame.SRCALPHA)
+        pygame.draw.line(self.image, CROSSHAIR_COLOR, (0, 10), (20, 10), 2)
+        pygame.draw.line(self.image, CROSSHAIR_COLOR, (10, 0), (10, 20), 2)
+        pygame.draw.circle(self.image, CROSSHAIR_COLOR, (10, 10), 4, 1)
         self.rect = self.image.get_rect()
     def update(self, **kwargs): self.rect.center = pygame.mouse.get_pos()
 
@@ -870,6 +875,8 @@ while running:
                 if event.key == pygame.K_3: dread.use_devour(enemies)
                 if event.key == pygame.K_4: dread.use_aspect_of_dread()
                 if event.key == pygame.K_p: current_game_state = 'PAUSED'
+                if event.key == MINIMAP_TOGGLE_KEY:
+                    show_minimap = not show_minimap
                 if event.key == pygame.K_e and interaction_target and not showing_lore:
                     showing_lore = True; sound_manager.play('interaction')
                 elif event.key == pygame.K_e and showing_lore: showing_lore = False
@@ -1015,8 +1022,15 @@ while running:
             if boss_reference and boss_reference.alive() and boss_reference.state != 'DYING':
                 draw_boss_health(screen, boss_reference)
             draw_cooldowns(screen, dread)
-            draw_minimap(screen, player, enemies)
+            if show_minimap:
+                draw_minimap(screen, player, enemies)
             ui_sprites.draw(screen)
+            health_ratio = player.health / player.max_health
+            if health_ratio < 0.3:
+                overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+                alpha = int(150 * (0.3 - health_ratio) / 0.3)
+                overlay.fill((180, 0, 0, alpha))
+                screen.blit(overlay, (0,0))
 
     # ... (Drawing for states is the same)
     if current_game_state == 'MAIN_MENU':
