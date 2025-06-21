@@ -7,6 +7,7 @@
 import pygame
 import sys
 import math
+import array
 
 # --- 1. SETUP AND INITIALIZATION ---
 
@@ -35,6 +36,26 @@ FPS = 60
 GRAVITY = 0.8
 TILE_SIZE = 40
 
+# --- Transition Variables ---
+transition_phase = None
+transition_target_state = None
+transition_dialogue = ""
+dialogue_timer = 0
+transition_alpha = 0
+FADE_SPEED = 8
+
+# --- Cutscene Variables ---
+cutscene_lines = [
+    "Echoes of chains rattle in the darkness...",
+    "A heavy coffin lid shifts with a groan.",
+    "Khristopher: '...Who dares disturb my rest?'",
+    "Khristopher: 'No... I sense the blood of mankind.'",
+    "Khristopher: 'Then I shall rise once more.'"
+]
+cutscene_index = 0
+cutscene_timer = 0
+CUTSCENE_DELAY = 3500
+
 # --- FONTS ---
 font_small = pygame.font.Font(None, 32)
 font_medium = pygame.font.Font(None, 50)
@@ -60,17 +81,44 @@ level_map = [
 LEVEL_WIDTH = len(level_map[0]) * TILE_SIZE
 LEVEL_HEIGHT = len(level_map) * TILE_SIZE
 
+# Pre-initialize parallax background list so the CUTSCENE state can
+# render without errors before `game_start` populates it.
+background_rects = []
+
 
 # --- SOUND MANAGER & UI ---
 class SoundManager:
     def __init__(self):
-        self.sounds = {'light_attack': self.create_placeholder_sound(440, 0.1),'heavy_attack': self.create_placeholder_sound(220, 0.3),'player_hurt': self.create_placeholder_sound(330, 0.2),'interaction': self.create_placeholder_sound(660, 0.1), 'screech': self.create_placeholder_sound(1200, 0.5), 'devour': self.create_placeholder_sound(150, 0.8)}
-    def create_placeholder_sound(self, frequency, duration):
-        sample_rate = pygame.mixer.get_init()[0]; num_samples = int(sample_rate * duration); buf = bytearray(num_samples)
-        for i in range(num_samples): buf[i] = (int(127 * math.sin(2 * math.pi * frequency * i / sample_rate)) + 128) % 256
-        return pygame.mixer.Sound(buffer=buf)
+        self.sounds = {
+            'light_attack': self.create_placeholder_sound(440, 0.1),
+            'heavy_attack': self.create_placeholder_sound(220, 0.3),
+            'player_hurt': self.create_placeholder_sound(330, 0.2),
+            'interaction': self.create_placeholder_sound(660, 0.1),
+            'screech': self.create_placeholder_sound(1200, 0.5),
+            'devour': self.create_placeholder_sound(150, 0.8),
+            'awakening': self.create_placeholder_sound(60, 0.8, volume=0.6, harmonics=[1,2])
+        }
+        self.play_music()
+
+    def create_placeholder_sound(self, frequency, duration, volume=0.5, harmonics=None):
+        sample_rate = pygame.mixer.get_init()[0]
+        num_samples = int(sample_rate * duration)
+        buf = array.array('h')
+        harmonics = harmonics or [1]
+        for i in range(num_samples):
+            sample = 0
+            for h in harmonics:
+                sample += math.sin(2 * math.pi * frequency * h * i / sample_rate) / h
+            buf.append(int(32767 * volume * sample / len(harmonics)))
+        return pygame.mixer.Sound(buffer=buf.tobytes())
+
+    def play_music(self):
+        self.music = self.create_placeholder_sound(80, 1.0, volume=0.15, harmonics=[1,2,3])
+        self.music.play(-1)
+
     def play(self, sound_name):
-        if sound_name in self.sounds: self.sounds[sound_name].play()
+        if sound_name in self.sounds:
+            self.sounds[sound_name].play()
 sound_manager = SoundManager()
 
 def draw_player_health(surface, x, y, health, max_health):
@@ -78,6 +126,16 @@ def draw_player_health(surface, x, y, health, max_health):
     bar_length = 200; bar_height = 20; fill = (health / max_health) * bar_length
     outline_rect = pygame.Rect(x, y, bar_length, bar_height); fill_rect = pygame.Rect(x, y, fill, bar_height)
     pygame.draw.rect(surface, HEALTH_RED, outline_rect); pygame.draw.rect(surface, HEALTH_GREEN, fill_rect); pygame.draw.rect(surface, UI_GRAY, outline_rect, 2)
+
+def draw_boss_health(surface, boss):
+    bar_length = 300
+    bar_height = 25
+    fill = (boss.health / boss.max_health) * bar_length
+    outline_rect = pygame.Rect((SCREEN_WIDTH - bar_length)//2, 20, bar_length, bar_height)
+    fill_rect = pygame.Rect(outline_rect.x, outline_rect.y, fill, bar_height)
+    pygame.draw.rect(surface, HEALTH_RED, outline_rect)
+    pygame.draw.rect(surface, HEALTH_GREEN, fill_rect)
+    pygame.draw.rect(surface, UI_GRAY, outline_rect, 2)
 def draw_text_box(surface, text):
     box_rect = pygame.Rect(50, SCREEN_HEIGHT - 150, SCREEN_WIDTH - 100, 120); pygame.draw.rect(surface, BLACK, box_rect); pygame.draw.rect(surface, UI_GRAY, box_rect, 3)
     text_surface = font_small.render(text, True, TEXT_COLOR); surface.blit(text_surface, (box_rect.x + 15, box_rect.y + 15))
@@ -104,10 +162,27 @@ def create_placeholder_sprites(color, width, height, num_frames=4):
     sprites = []
     for i in range(num_frames):
         surf = pygame.Surface([width, height], pygame.SRCALPHA)
-        brightness = 255 - (i * 30)
-        surf.fill((min(color[0], brightness), min(color[1], brightness), min(color[2], brightness)))
+        shade = [max(0, c - i * 25) for c in color]
+        pygame.draw.rect(surf, shade, (0, 0, width, height), border_radius=6)
+        highlight = [min(255, c + 40) for c in color]
+        pygame.draw.rect(surf, highlight, (4, 4, width - 8, height // 2), border_radius=4)
+        pygame.draw.rect(surf, (0, 0, 0), (0, 0, width, height), 2, border_radius=6)
         sprites.append(surf)
     return sprites
+
+def start_transition(target_state, dialogue=""):
+    global transition_phase, transition_target_state, transition_dialogue, transition_alpha
+    transition_phase = 'fade_out'
+    transition_target_state = target_state
+    transition_dialogue = dialogue
+    transition_alpha = 0
+
+def start_cutscene():
+    global current_game_state, cutscene_index, cutscene_timer
+    cutscene_index = 0
+    cutscene_timer = 0
+    current_game_state = 'CUTSCENE'
+    sound_manager.play('awakening')
 
 # --- 2. PLAYER CLASS ---
 class Player(pygame.sprite.Sprite):
@@ -325,7 +400,7 @@ class ShamblingUndead(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(topleft=(x,y))
         self.state = 'PATROL'; self.player = player_ref; self.detection_range = 300; self.attack_range = 30
         self.damage = 10; self.patrol_speed = 1; self.chase_speed = 2.5; self.direction = 1
-        self.health = 3; self.death_timer = 250; self.velocity = pygame.math.Vector2(0,0)
+        self.health = 3; self.max_health = self.health; self.death_timer = 250; self.velocity = pygame.math.Vector2(0,0)
         self.is_stunned = False; self.stun_end_time = 0; self.is_boss = False
     def update(self, tiles, **kwargs):
         current_time = pygame.time.get_ticks()
@@ -369,7 +444,7 @@ class TormentedSpirit(pygame.sprite.Sprite):
         super().__init__(); self.image = pygame.Surface([35, 35], pygame.SRCALPHA)
         pygame.draw.circle(self.image, SPIRIT_COLOR, (17, 17), 17); self.image.set_alpha(150)
         self.rect = self.image.get_rect(center=(x,y)); self.player = player_ref
-        self.speed = 1.5; self.damage = 15; self.health = 2
+        self.speed = 1.5; self.damage = 15; self.health = 2; self.max_health = self.health
         self.state = 'IDLE'; self.death_timer = 250
         self.is_stunned = False; self.stun_end_time = 0; self.is_boss = False; self.velocity = pygame.math.Vector2(0,0)
     def update(self, **kwargs):
@@ -395,7 +470,7 @@ class CryptGuardian(ShamblingUndead):
     def __init__(self, x, y, player_ref):
         super().__init__(x, y, player_ref); self.image = pygame.Surface([80, 100])
         self.image.fill(BOSS_COLOR); self.rect = self.image.get_rect(topleft=(x,y))
-        self.health = 25; self.damage = 25; self.patrol_speed = 0
+        self.health = 25; self.max_health = self.health; self.damage = 25; self.patrol_speed = 0
         self.chase_speed = 1.8; self.detection_range = 600; self.is_boss = True
     def take_damage(self, amount):
         super().take_damage(amount)
@@ -450,10 +525,10 @@ class Camera:
 # --- 5. GAME SETUP AND MAIN LOOP ---
 def game_start():
     global player, dread, all_sprites, enemies, projectiles, ui_sprites, interactables, tiles, gate_tiles
-    global camera, background_rects, current_game_state, final_exit
-    all_sprites = pygame.sprite.Group(); enemies = pygame.sprite.Group(); projectiles = pygame.sprite.Group(); 
-    ui_sprites = pygame.sprite.Group(); interactables = pygame.sprite.Group(); tiles = pygame.sprite.Group(); 
-    gate_tiles = pygame.sprite.Group()
+    global camera, background_rects, current_game_state, final_exit, boss_reference
+    all_sprites = pygame.sprite.Group(); enemies = pygame.sprite.Group(); projectiles = pygame.sprite.Group();
+    ui_sprites = pygame.sprite.Group(); interactables = pygame.sprite.Group(); tiles = pygame.sprite.Group();
+    gate_tiles = pygame.sprite.Group(); boss_reference = None
     for row_index, row in enumerate(level_map):
         for col_index, char in enumerate(row):
             x, y = col_index * TILE_SIZE, row_index * TILE_SIZE
@@ -462,7 +537,9 @@ def game_start():
             elif char == 'P': player = Player(x, y)
             elif char == 'E': enemies.add(ShamblingUndead(x, y, None))
             elif char == 'S': enemies.add(TormentedSpirit(x, y, None))
-            elif char == 'B': enemies.add(CryptGuardian(x, y, None))
+            elif char == 'B':
+                boss_reference = CryptGuardian(x, y, None)
+                enemies.add(boss_reference)
             elif char == 'L': interactables.add(InteractableObject((x,y), "Press 'E'", "Ten thousand years... wasted."))
             elif char == 'F': final_exit = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
     all_sprites.add(tiles, enemies, interactables)
@@ -508,8 +585,12 @@ while running:
         elif current_game_state == 'MAIN_MENU':
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 play_button_rect = pygame.Rect(SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 25, 200, 50)
-                if play_button_rect.collidepoint(mouse_pos):
-                    game_start(); current_game_state = 'GAMEPLAY'; pygame.mouse.set_visible(False)
+                if play_button_rect.collidepoint(mouse_pos) and transition_phase is None:
+                    start_transition('CUTSCENE')
+        elif current_game_state == 'CUTSCENE':
+            if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                cutscene_index += 1
+                cutscene_timer = 0
         elif current_game_state == 'GAME_OVER':
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 game_start(); current_game_state = 'GAMEPLAY'; pygame.mouse.set_visible(False)
@@ -519,10 +600,51 @@ while running:
         all_sprites.update(camera=camera, tiles=tiles, enemies_group=enemies)
         ui_sprites.update(); camera.update()
         if not player.alive(): game_over = True; current_game_state = 'GAME_OVER'
+    elif current_game_state == 'CUTSCENE':
+        cutscene_timer += clock.get_time()
+        if cutscene_timer > CUTSCENE_DELAY:
+            cutscene_index += 1
+            cutscene_timer = 0
+        if cutscene_index >= len(cutscene_lines) and transition_phase is None:
+            start_transition('GAMEPLAY')
+
+    # Handle transitions
+    if transition_phase == 'fade_out':
+        transition_alpha += FADE_SPEED
+        if transition_alpha >= 255:
+            transition_alpha = 255
+            if transition_dialogue:
+                dialogue_timer = 3000
+                transition_phase = 'dialogue'
+            else:
+                if transition_target_state == 'GAMEPLAY':
+                    game_start()
+                elif transition_target_state == 'CUTSCENE':
+                    start_cutscene()
+                current_game_state = transition_target_state
+                if current_game_state == 'GAMEPLAY':
+                    pygame.mouse.set_visible(False)
+                transition_phase = 'fade_in'
+    elif transition_phase == 'dialogue':
+        dialogue_timer -= clock.get_time()
+        if dialogue_timer <= 0:
+            if transition_target_state == 'GAMEPLAY':
+                game_start()
+            current_game_state = transition_target_state
+            if current_game_state == 'GAMEPLAY':
+                pygame.mouse.set_visible(False)
+            transition_phase = 'fade_in'
+    elif transition_phase == 'fade_in':
+        transition_alpha -= FADE_SPEED
+        if transition_alpha <= 0:
+            transition_alpha = 0
+            transition_phase = None
 
     # Collisions
     if current_game_state == 'GAMEPLAY' and not showing_lore:
-        if 'final_exit' in globals() and player.rect.colliderect(final_exit): current_game_state = 'MAIN_MENU'
+        if 'final_exit' in globals() and player.rect.colliderect(final_exit):
+            if transition_phase is None:
+                start_transition('MAIN_MENU', "The crypt grows silent...")
         interaction_target = pygame.sprite.spritecollideany(player, interactables)
         player_hits = pygame.sprite.spritecollide(player, enemies, False)
         active_hits = [e for e in player_hits if e.state != 'DYING']; 
@@ -546,6 +668,8 @@ while running:
         if interaction_target and not showing_lore: interaction_target.draw_prompt(screen, camera)
         if player.alive():
             draw_player_health(screen, 20, 20, player.health, player.max_health)
+            if boss_reference and boss_reference.alive() and boss_reference.state != 'DYING':
+                draw_boss_health(screen, boss_reference)
             draw_cooldowns(screen, dread)
             ui_sprites.draw(screen)
 
@@ -569,9 +693,19 @@ while running:
         screen.blit(text, text_rect)
         restart_text = font_medium.render("Press 'R' to awaken again", True, WHITE); restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20))
         screen.blit(restart_text, restart_rect)
+    elif current_game_state == 'CUTSCENE':
+        pygame.mouse.set_visible(False)
+        draw_text_box(screen, cutscene_lines[min(cutscene_index, len(cutscene_lines)-1)])
     if showing_lore:
         draw_text_box(screen, interaction_target.lore_text)
 
+    if transition_phase:
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.fill(BLACK)
+        overlay.set_alpha(int(transition_alpha))
+        screen.blit(overlay, (0, 0))
+        if transition_phase == 'dialogue':
+            draw_text_box(screen, transition_dialogue)
 
     pygame.display.flip()
     clock.tick(FPS)
