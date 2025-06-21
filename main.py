@@ -8,6 +8,7 @@ import pygame
 import sys
 import math
 import array
+import random
 
 # --- 1. SETUP AND INITIALIZATION ---
 
@@ -28,6 +29,7 @@ HEALTH_GREEN = (0, 200, 0); UI_GRAY = (100, 100, 100); BG_COLOR_DARK = (10, 5, 1
 BG_COLOR_LIGHT = (40, 30, 50); CROSSHAIR_COLOR = (255, 255, 255); TEXT_COLOR = (230, 230, 230)
 MENU_OVERLAY_COLOR = (0, 0, 0, 180); INTERACT_COLOR = (255, 223, 100); SPIRIT_COLOR = (200, 255, 255)
 BOSS_COLOR = (180, 50, 50); STUN_COLOR = (255, 255, 0); COOLDOWN_COLOR = (180, 180, 180)
+STAMINA_COLOR = (100, 180, 255)
 
 
 # --- Game Clock & Constants ---
@@ -35,6 +37,13 @@ clock = pygame.time.Clock()
 FPS = 60
 GRAVITY = 0.8
 TILE_SIZE = 40
+STAMINA_MAX = 100
+STAMINA_REGEN = 20
+STAMINA_LIGHT_ATTACK = 5
+STAMINA_HEAVY_ATTACK = 15
+STAMINA_DASH = 20
+STAMINA_BACKSTEP = 10
+HAZARD_DAMAGE = 10
 
 # --- Transition Variables ---
 transition_phase = None
@@ -130,6 +139,14 @@ def draw_player_health(surface, x, y, health, max_health):
     outline_rect = pygame.Rect(x, y, bar_length, bar_height); fill_rect = pygame.Rect(x, y, fill, bar_height)
     pygame.draw.rect(surface, HEALTH_RED, outline_rect); pygame.draw.rect(surface, HEALTH_GREEN, fill_rect); pygame.draw.rect(surface, UI_GRAY, outline_rect, 2)
 
+def draw_player_stamina(surface, x, y, stamina, max_stamina):
+    bar_length = 200; bar_height = 10; fill = (stamina / max_stamina) * bar_length
+    outline_rect = pygame.Rect(x, y, bar_length, bar_height)
+    fill_rect = pygame.Rect(x, y, fill, bar_height)
+    pygame.draw.rect(surface, (40,40,40), outline_rect)
+    pygame.draw.rect(surface, STAMINA_COLOR, fill_rect)
+    pygame.draw.rect(surface, UI_GRAY, outline_rect, 2)
+
 def draw_boss_health(surface, boss):
     bar_length = 300
     bar_height = 25
@@ -218,6 +235,7 @@ class Player(pygame.sprite.Sprite):
         self.dash_speed = 15; self.dash_duration = 150; self.dash_timer = 0; self.dash_cooldown = 800; self.last_dash_time = -self.dash_cooldown
         self.is_backstepping = False; self.backstep_duration = 120; self.backstep_timer = 0
         self.backstep_cooldown = 600; self.last_backstep_time = -self.backstep_cooldown
+        self.max_stamina = STAMINA_MAX; self.stamina = self.max_stamina; self.stamina_regen = STAMINA_REGEN
     def animate(self):
         self.animation_frame += self.animation_speed
         if self.animation_frame >= len(self.animations[self.current_animation]):
@@ -262,6 +280,7 @@ class Player(pygame.sprite.Sprite):
             if self.rect.colliderect(tile.rect):
                 if self.velocity.y > 0: self.rect.bottom = tile.rect.top; self.is_on_ground = True; self.velocity.y = 0
                 if self.velocity.y < 0: self.rect.top = tile.rect.bottom; self.velocity.y = 0
+        self.stamina = min(self.max_stamina, self.stamina + self.stamina_regen * clock.get_time()/1000)
     def start_attack(self, event):
         if event.button == 1 and not (self.is_dashing or self.is_blocking or self.is_attacking): self.is_charging = True; self.charge_time = 0
     def end_attack(self, event):
@@ -270,24 +289,31 @@ class Player(pygame.sprite.Sprite):
             if self.charge_time >= self.charge_threshold: self.heavy_attack()
             else: self.light_attack()
     def light_attack(self):
+        if self.stamina < STAMINA_LIGHT_ATTACK: return
+        self.stamina -= STAMINA_LIGHT_ATTACK
         sound_manager.play('light_attack'); self.is_attacking = True; self.animation_frame = 0; hitbox_width = 60
         if self.facing_right: self.attack_hitbox = pygame.Rect(self.rect.right, self.rect.top, hitbox_width, self.rect.height)
         else: self.attack_hitbox = pygame.Rect(self.rect.left - hitbox_width, self.rect.top, hitbox_width, self.rect.height)
     def heavy_attack(self):
+        if self.stamina < STAMINA_HEAVY_ATTACK: return
+        self.stamina -= STAMINA_HEAVY_ATTACK
         sound_manager.play('heavy_attack'); self.is_attacking = True; self.animation_frame = 0; hitbox_width = 90
+        if 'camera' in globals(): camera.shake(200, 5)
         if self.facing_right: self.attack_hitbox = pygame.Rect(self.rect.right, self.rect.top, hitbox_width, self.rect.height)
         else: self.attack_hitbox = pygame.Rect(self.rect.left - hitbox_width, self.rect.top, hitbox_width, self.rect.height)
     def dash(self):
-        if self.is_dashing: return
+        if self.is_dashing or self.stamina < STAMINA_DASH: return
         current_time = pygame.time.get_ticks()
         if current_time - self.last_dash_time > self.dash_cooldown:
+            self.stamina -= STAMINA_DASH
             self.is_dashing = True; self.dash_timer = self.dash_duration; self.last_dash_time = current_time
             self.velocity.x = self.dash_speed if self.facing_right else -self.dash_speed; self.velocity.y = 0
 
     def backstep(self):
-        if self.is_backstepping or self.is_dashing: return
+        if self.is_backstepping or self.is_dashing or self.stamina < STAMINA_BACKSTEP: return
         current_time = pygame.time.get_ticks()
         if current_time - self.last_backstep_time > self.backstep_cooldown:
+            self.stamina -= STAMINA_BACKSTEP
             self.is_backstepping = True; self.backstep_timer = self.backstep_duration; self.last_backstep_time = current_time
             self.velocity.x = -self.dash_speed if self.facing_right else self.dash_speed
             self.velocity.y = 0
@@ -296,6 +322,7 @@ class Player(pygame.sprite.Sprite):
         sound_manager.play('player_hurt');
         if self.is_blocking: amount *= 0.25
         self.health -= amount; self.is_invincible = True; self.invincibility_timer = pygame.time.get_ticks()
+        if 'camera' in globals(): camera.shake(150, 4)
         if self.health <= 0: self.kill()
 
 # --- 3. DREAD AND ABILITY CLASSES ---
@@ -542,23 +569,62 @@ class Tile(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(topleft=(x, y))
     def update(self, **kwargs): pass
 
+class SpikeTrap(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__(); self.image = pygame.Surface([TILE_SIZE, TILE_SIZE]);
+        pygame.draw.polygon(self.image, (180,80,80), [(0,TILE_SIZE),(TILE_SIZE/2,0),(TILE_SIZE,TILE_SIZE)])
+        self.rect = self.image.get_rect(topleft=(x,y))
+
+class BreakableCrate(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__(); self.image = pygame.Surface([TILE_SIZE, TILE_SIZE]); self.image.fill((120,80,40))
+        pygame.draw.rect(self.image, (60,40,20), (4,4,TILE_SIZE-8,TILE_SIZE-8),2)
+        self.rect = self.image.get_rect(topleft=(x,y)); self.health = 3
+    def take_damage(self, amount):
+        self.health -= amount
+        if self.health <= 0:
+            if 'pickups' in globals() and 'all_sprites' in globals():
+                hp = HealthPickup(self.rect.centerx, self.rect.centery)
+                pickups.add(hp); all_sprites.add(hp)
+            self.kill()
+
+class HealthPickup(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__(); self.image = pygame.Surface([15,15]); self.image.fill(HEALTH_GREEN)
+        self.rect = self.image.get_rect(center=(x,y))
+    def update(self, **kwargs):
+        pass
+
 class Camera:
     def __init__(self, target):
         self.target = target; self.camera_x = 0; self.camera_y = 0; self.follow_speed = 0.1
+        self.shake_duration = 0; self.shake_intensity = 0; self.shake_offset = pygame.math.Vector2(0,0)
     def update(self):
         if not self.target.alive(): return
         target_x = self.target.rect.centerx - SCREEN_WIDTH / 2
         self.camera_x += (target_x - self.camera_x) * self.follow_speed
+        if self.shake_duration > 0:
+            self.shake_duration -= clock.get_time()
+            self.shake_offset.x = random.randint(-self.shake_intensity, self.shake_intensity)
+            self.shake_offset.y = random.randint(-self.shake_intensity, self.shake_intensity)
+        else:
+            self.shake_offset.update(0,0)
         if self.camera_x < 0: self.camera_x = 0
         if self.camera_x > LEVEL_WIDTH - SCREEN_WIDTH: self.camera_x = LEVEL_WIDTH - SCREEN_WIDTH
+
+    def shake(self, duration, intensity):
+        self.shake_duration = duration
+        self.shake_intensity = intensity
 
 # --- 5. GAME SETUP AND MAIN LOOP ---
 def game_start():
     global player, dread, all_sprites, enemies, projectiles, ui_sprites, interactables, tiles, gate_tiles
+    global hazards, crates, pickups
     global camera, background_rects, current_game_state, final_exit, boss_reference
     explored_tiles.clear()
     all_sprites = pygame.sprite.Group(); enemies = pygame.sprite.Group(); projectiles = pygame.sprite.Group();
     ui_sprites = pygame.sprite.Group(); interactables = pygame.sprite.Group(); tiles = pygame.sprite.Group();
+    hazards = pygame.sprite.Group(); crates = pygame.sprite.Group(); pickups = pygame.sprite.Group()
     gate_tiles = pygame.sprite.Group(); boss_reference = None
     for row_index, row in enumerate(level_map):
         for col_index, char in enumerate(row):
@@ -573,7 +639,11 @@ def game_start():
                 enemies.add(boss_reference)
             elif char == 'L': interactables.add(InteractableObject((x,y), "Press 'E'", "Ten thousand years... wasted."))
             elif char == 'F': final_exit = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
-    all_sprites.add(tiles, enemies, interactables)
+    hazard_positions = [(500, LEVEL_HEIGHT - TILE_SIZE), (800, LEVEL_HEIGHT - TILE_SIZE * 2)]
+    crate_positions = [(600, LEVEL_HEIGHT - TILE_SIZE), (900, LEVEL_HEIGHT - TILE_SIZE)]
+    for pos in hazard_positions: hazards.add(SpikeTrap(*pos))
+    for pos in crate_positions: crates.add(BreakableCrate(*pos))
+    all_sprites.add(tiles, enemies, interactables, hazards, crates)
     for enemy in enemies: enemy.player = player
     dread = Dread(player); camera = Camera(player); crosshair = Crosshair(); ui_sprites.add(crosshair)
     all_sprites.add(player, dread)
@@ -680,27 +750,35 @@ while running:
                 start_transition('MAIN_MENU', "The crypt grows silent...")
         interaction_target = pygame.sprite.spritecollideany(player, interactables)
         player_hits = pygame.sprite.spritecollide(player, enemies, False)
-        active_hits = [e for e in player_hits if e.state != 'DYING']; 
+        active_hits = [e for e in player_hits if e.state != 'DYING'];
         if active_hits: player.take_damage(active_hits[0].damage)
+        if pygame.sprite.spritecollideany(player, hazards):
+            player.take_damage(HAZARD_DAMAGE)
         if player.is_attacking and player.attack_hitbox:
             damage = 10 if player.charge_time >= player.charge_threshold else 3
             hit_enemies = [e for e in enemies if player.attack_hitbox.colliderect(e.rect)]
             for enemy in hit_enemies: enemy.take_damage(damage); player.attack_hitbox = None; break
+            hit_crates = [c for c in crates if player.attack_hitbox.colliderect(c.rect)]
+            for c in hit_crates: c.take_damage(damage); player.attack_hitbox = None; break
         hits = pygame.sprite.groupcollide(projectiles, enemies, True, False);
         for p, e_list in hits.items():
             for enemy in e_list: enemy.take_damage(p.damage)
+        for pickup in pygame.sprite.spritecollide(player, pickups, True):
+            player.health = min(player.max_health, player.health + 10)
 
     # --- Draw / Render ---
     screen.fill(BG_COLOR_DARK)
     if current_game_state != 'MAIN_MENU':
         for bg in background_rects:
-            bg_x = bg['rect'].x - camera.camera_x * bg['speed']
-            pygame.draw.rect(screen, BG_COLOR_LIGHT, (bg_x, bg['rect'].y, bg['rect'].width, bg['rect'].height))
+            bg_x = bg['rect'].x - camera.camera_x * bg['speed'] + camera.shake_offset.x * 0.5
+            pygame.draw.rect(screen, BG_COLOR_LIGHT, (bg_x, bg['rect'].y + camera.shake_offset.y * 0.5, bg['rect'].width, bg['rect'].height))
         for sprite in all_sprites:
-            screen.blit(sprite.image, (sprite.rect.x - camera.camera_x, sprite.rect.y - camera.camera_y))
+            screen.blit(sprite.image, (sprite.rect.x - camera.camera_x + camera.shake_offset.x,
+                                        sprite.rect.y - camera.camera_y + camera.shake_offset.y))
         if interaction_target and not showing_lore: interaction_target.draw_prompt(screen, camera)
         if player.alive():
             draw_player_health(screen, 20, 20, player.health, player.max_health)
+            draw_player_stamina(screen, 20, 45, player.stamina, player.max_stamina)
             if boss_reference and boss_reference.alive() and boss_reference.state != 'DYING':
                 draw_boss_health(screen, boss_reference)
             draw_cooldowns(screen, dread)
