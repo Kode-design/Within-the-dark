@@ -48,6 +48,7 @@ PARRY_WINDOW = 200
 WALL_SLIDE_SPEED = 3
 WALL_JUMP_SPEED = 12
 HAZARD_DAMAGE = 10
+CLIMB_SPEED = 4
 
 # --- Transition Variables ---
 transition_phase = None
@@ -113,7 +114,8 @@ class SoundManager:
             'screech': self.create_placeholder_sound(1200, 0.5),
             'devour': self.create_placeholder_sound(150, 0.8),
             'awakening': self.create_placeholder_sound(60, 0.8, volume=0.6, harmonics=[1,2]),
-            'parry': self.create_placeholder_sound(880, 0.1)
+            'parry': self.create_placeholder_sound(880, 0.1),
+            'stealth_kill': self.create_placeholder_sound(200, 0.2)
         }
         self.play_music()
 
@@ -243,16 +245,22 @@ class Player(pygame.sprite.Sprite):
         self.block_start_time = 0; self.parry_window = PARRY_WINDOW
         self.max_stamina = STAMINA_MAX; self.stamina = self.max_stamina; self.stamina_regen = STAMINA_REGEN
         self.is_wall_sliding = False; self.wall_direction = 0
+        self.combo_stage = 0; self.combo_window = 400; self.last_combo_time = 0
+        self.current_attack_damage = 0
     def animate(self):
         self.animation_frame += self.animation_speed
         if self.animation_frame >= len(self.animations[self.current_animation]):
             self.animation_frame = 0
-            if self.is_attacking: self.is_attacking = False; self.attack_hitbox = None
+            if self.is_attacking:
+                self.is_attacking = False
+                self.attack_hitbox = None
+                self.current_attack_damage = 0
         self.image = self.animations[self.current_animation][int(self.animation_frame)]
         if not self.facing_right: self.image = pygame.transform.flip(self.image, True, False)
     
     # FIX: Added **kwargs to accept and ignore any unexpected arguments.
     def update(self, camera, tiles, **kwargs):
+        ladders = kwargs.get('ladders', [])
         if self.is_attacking: self.current_animation = 'attack'
         elif self.velocity.x != 0 and self.is_on_ground: self.current_animation = 'walk'
         else: self.current_animation = 'idle'
@@ -262,6 +270,9 @@ class Player(pygame.sprite.Sprite):
             if mouse_pos[0] > player_screen_x: self.facing_right = True
             else: self.facing_right = False
         if self.is_invincible and pygame.time.get_ticks() - self.invincibility_timer > self.invincibility_duration: self.is_invincible = False
+        if pygame.time.get_ticks() - self.last_combo_time > self.combo_window:
+            self.combo_stage = 0
+
         if self.is_dashing:
             self.dash_timer -= clock.get_time()
             if self.dash_timer <= 0: self.is_dashing = False; self.velocity.x = 0
@@ -292,11 +303,26 @@ class Player(pygame.sprite.Sprite):
                 if self.velocity.x < 0:
                     self.rect.left = tile.rect.right
                     wall_hit_left = True
-        self.velocity.y += GRAVITY; self.rect.y += self.velocity.y; self.is_on_ground = False
+        on_ladder = any(self.rect.colliderect(l.rect) for l in ladders)
+        if on_ladder:
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_w]:
+                self.velocity.y = -CLIMB_SPEED
+            elif keys[pygame.K_s]:
+                self.velocity.y = CLIMB_SPEED
+            else:
+                self.velocity.y = 0
+        else:
+            self.velocity.y += GRAVITY
+        self.rect.y += self.velocity.y; self.is_on_ground = False
         for tile in tiles:
             if self.rect.colliderect(tile.rect):
-                if self.velocity.y > 0: self.rect.bottom = tile.rect.top; self.is_on_ground = True; self.velocity.y = 0
-                if self.velocity.y < 0: self.rect.top = tile.rect.bottom; self.velocity.y = 0
+                if self.velocity.y > 0:
+                    self.rect.bottom = tile.rect.top; self.is_on_ground = True; self.velocity.y = 0
+                if self.velocity.y < 0:
+                    self.rect.top = tile.rect.bottom; self.velocity.y = 0
+        if on_ladder:
+            self.is_on_ground = True
         wall_left = any(pygame.Rect(self.rect.left-1, self.rect.top, 1, self.rect.height).colliderect(t.rect) for t in tiles)
         wall_right = any(pygame.Rect(self.rect.right, self.rect.top, 1, self.rect.height).colliderect(t.rect) for t in tiles)
         if not self.is_on_ground and (wall_left or wall_right) and self.velocity.y > 0:
@@ -315,11 +341,22 @@ class Player(pygame.sprite.Sprite):
             if self.charge_time >= self.charge_threshold: self.heavy_attack()
             else: self.light_attack()
     def light_attack(self):
-        if self.stamina < STAMINA_LIGHT_ATTACK: return
+        if self.stamina < STAMINA_LIGHT_ATTACK:
+            return
         self.stamina -= STAMINA_LIGHT_ATTACK
-        sound_manager.play('light_attack'); self.is_attacking = True; self.animation_frame = 0; hitbox_width = 60
-        if self.facing_right: self.attack_hitbox = pygame.Rect(self.rect.right, self.rect.top, hitbox_width, self.rect.height)
-        else: self.attack_hitbox = pygame.Rect(self.rect.left - hitbox_width, self.rect.top, hitbox_width, self.rect.height)
+        sound_manager.play('light_attack'); self.is_attacking = True; self.animation_frame = 0
+        if pygame.time.get_ticks() - self.last_combo_time <= self.combo_window:
+            self.combo_stage = (self.combo_stage + 1) % 3
+        else:
+            self.combo_stage = 0
+        self.last_combo_time = pygame.time.get_ticks()
+        base_width = 60
+        hitbox_width = base_width + self.combo_stage * 10
+        if self.facing_right:
+            self.attack_hitbox = pygame.Rect(self.rect.right, self.rect.top, hitbox_width, self.rect.height)
+        else:
+            self.attack_hitbox = pygame.Rect(self.rect.left - hitbox_width, self.rect.top, hitbox_width, self.rect.height)
+        self.current_attack_damage = 3 + self.combo_stage
     def heavy_attack(self):
         if self.stamina < STAMINA_HEAVY_ATTACK: return
         self.stamina -= STAMINA_HEAVY_ATTACK
@@ -327,6 +364,7 @@ class Player(pygame.sprite.Sprite):
         if 'camera' in globals(): camera.shake(200, 5)
         if self.facing_right: self.attack_hitbox = pygame.Rect(self.rect.right, self.rect.top, hitbox_width, self.rect.height)
         else: self.attack_hitbox = pygame.Rect(self.rect.left - hitbox_width, self.rect.top, hitbox_width, self.rect.height)
+        self.current_attack_damage = 10
 
     def start_block(self):
         self.is_blocking = True
@@ -621,6 +659,15 @@ class BreakableCrate(pygame.sprite.Sprite):
                 pickups.add(hp); all_sprites.add(hp)
             self.kill()
 
+class Ladder(pygame.sprite.Sprite):
+    def __init__(self, x, y, height):
+        super().__init__()
+        self.image = pygame.Surface([TILE_SIZE, height])
+        self.image.fill((90, 90, 90))
+        self.rect = self.image.get_rect(topleft=(x, y))
+    def update(self, **kwargs):
+        pass
+
 class HealthPickup(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__(); self.image = pygame.Surface([15,15]); self.image.fill(HEALTH_GREEN)
@@ -652,12 +699,12 @@ class Camera:
 # --- 5. GAME SETUP AND MAIN LOOP ---
 def game_start():
     global player, dread, all_sprites, enemies, projectiles, ui_sprites, interactables, tiles, gate_tiles
-    global hazards, crates, pickups
+    global hazards, crates, pickups, ladders
     global camera, background_rects, current_game_state, final_exit, boss_reference
     explored_tiles.clear()
     all_sprites = pygame.sprite.Group(); enemies = pygame.sprite.Group(); projectiles = pygame.sprite.Group();
     ui_sprites = pygame.sprite.Group(); interactables = pygame.sprite.Group(); tiles = pygame.sprite.Group();
-    hazards = pygame.sprite.Group(); crates = pygame.sprite.Group(); pickups = pygame.sprite.Group()
+    hazards = pygame.sprite.Group(); crates = pygame.sprite.Group(); pickups = pygame.sprite.Group(); ladders = pygame.sprite.Group()
     gate_tiles = pygame.sprite.Group(); boss_reference = None
     for row_index, row in enumerate(level_map):
         for col_index, char in enumerate(row):
@@ -674,9 +721,11 @@ def game_start():
             elif char == 'F': final_exit = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
     hazard_positions = [(500, LEVEL_HEIGHT - TILE_SIZE), (800, LEVEL_HEIGHT - TILE_SIZE * 2)]
     crate_positions = [(600, LEVEL_HEIGHT - TILE_SIZE), (900, LEVEL_HEIGHT - TILE_SIZE)]
+    ladder_positions = [(400, LEVEL_HEIGHT - TILE_SIZE*4, TILE_SIZE*3)]
     for pos in hazard_positions: hazards.add(SpikeTrap(*pos))
     for pos in crate_positions: crates.add(BreakableCrate(*pos))
-    all_sprites.add(tiles, enemies, interactables, hazards, crates)
+    for pos in ladder_positions: ladders.add(Ladder(*pos))
+    all_sprites.add(tiles, enemies, interactables, hazards, crates, ladders)
     for enemy in enemies: enemy.player = player
     dread = Dread(player); camera = Camera(player); crosshair = Crosshair(); ui_sprites.add(crosshair)
     all_sprites.add(player, dread)
@@ -732,7 +781,7 @@ while running:
 
     # Update
     if current_game_state == 'GAMEPLAY' and not showing_lore:
-        all_sprites.update(camera=camera, tiles=tiles, enemies_group=enemies)
+        all_sprites.update(camera=camera, tiles=tiles, enemies_group=enemies, ladders=ladders)
         ui_sprites.update(); camera.update()
         explored_tiles.add((player.rect.centerx // TILE_SIZE, player.rect.centery // TILE_SIZE))
         if not player.alive(): game_over = True; current_game_state = 'GAME_OVER'
@@ -800,11 +849,24 @@ while running:
             if pygame.sprite.spritecollideany(enemy, hazards):
                 enemy.take_damage(HAZARD_DAMAGE)
         if player.is_attacking and player.attack_hitbox:
-            damage = 10 if player.charge_time >= player.charge_threshold else 3
             hit_enemies = [e for e in enemies if player.attack_hitbox.colliderect(e.rect)]
-            for enemy in hit_enemies: enemy.take_damage(damage); player.attack_hitbox = None; break
-            hit_crates = [c for c in crates if player.attack_hitbox.colliderect(c.rect)]
-            for c in hit_crates: c.take_damage(damage); player.attack_hitbox = None; break
+            for enemy in hit_enemies:
+                dmg = player.current_attack_damage or (10 if player.charge_time >= player.charge_threshold else 3)
+                if isinstance(enemy, ShamblingUndead) and enemy.state == 'PATROL':
+                    if (enemy.direction > 0 and player.rect.centerx < enemy.rect.centerx) or (enemy.direction < 0 and player.rect.centerx > enemy.rect.centerx):
+                        enemy.take_damage(enemy.health)
+                        sound_manager.play('stealth_kill')
+                    else:
+                        enemy.take_damage(dmg)
+                else:
+                    enemy.take_damage(dmg)
+                player.attack_hitbox = None
+                break
+            hit_crates = [c for c in crates if player.attack_hitbox and player.attack_hitbox.colliderect(c.rect)]
+            for c in hit_crates:
+                c.take_damage(player.current_attack_damage or 3)
+                player.attack_hitbox = None
+                break
         hits = pygame.sprite.groupcollide(projectiles, enemies, True, False);
         for p, e_list in hits.items():
             for enemy in e_list: enemy.take_damage(p.damage)
