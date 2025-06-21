@@ -31,6 +31,21 @@ MENU_OVERLAY_COLOR = (0, 0, 0, 180); INTERACT_COLOR = (255, 223, 100); SPIRIT_CO
 BOSS_COLOR = (180, 50, 50); STUN_COLOR = (255, 255, 0); COOLDOWN_COLOR = (180, 180, 180)
 STAMINA_COLOR = (100, 180, 255)
 
+BACKGROUND_TOP = (20, 10, 30)
+BACKGROUND_BOTTOM = (0, 0, 0)
+
+def create_gradient_surface(width, height, top_color, bottom_color):
+    surface = pygame.Surface((width, height))
+    for y in range(height):
+        t = y / float(height)
+        r = int(top_color[0] + (bottom_color[0] - top_color[0]) * t)
+        g = int(top_color[1] + (bottom_color[1] - top_color[1]) * t)
+        b = int(top_color[2] + (bottom_color[2] - top_color[2]) * t)
+        pygame.draw.line(surface, (r, g, b), (0, y), (width, y))
+    return surface
+
+background_surface = create_gradient_surface(SCREEN_WIDTH, SCREEN_HEIGHT, BACKGROUND_TOP, BACKGROUND_BOTTOM)
+
 
 # --- Game Clock & Constants ---
 clock = pygame.time.Clock()
@@ -219,16 +234,35 @@ def draw_minimap(surface, player, enemies):
     surface.blit(minimap_surface, (SCREEN_WIDTH - MINIMAP_WIDTH - 10, 10))
 
 def create_placeholder_sprites(color, width, height, num_frames=4):
+    """Return a list of simple humanoid sprites with basic shading."""
     sprites = []
     for i in range(num_frames):
         surf = pygame.Surface([width, height], pygame.SRCALPHA)
-        shade = [max(0, c - i * 25) for c in color]
-        pygame.draw.rect(surf, shade, (0, 0, width, height), border_radius=6)
+        body = pygame.Rect(width * 0.25, height * 0.35, width * 0.5, height * 0.6)
+        head = pygame.Rect(width * 0.3, height * 0.05, width * 0.4, height * 0.3)
+        arm_left = pygame.Rect(0, height * 0.4, width * 0.25, height * 0.2)
+        arm_right = pygame.Rect(width * 0.75, height * 0.4, width * 0.25, height * 0.2)
+        shade = [max(0, c - 30) for c in color]
         highlight = [min(255, c + 40) for c in color]
-        pygame.draw.rect(surf, highlight, (4, 4, width - 8, height // 2), border_radius=4)
-        pygame.draw.rect(surf, (0, 0, 0), (0, 0, width, height), 2, border_radius=6)
+        pygame.draw.rect(surf, shade, body, border_radius=4)
+        pygame.draw.rect(surf, highlight, head, border_radius=3)
+        pygame.draw.rect(surf, color, arm_left, border_radius=3)
+        pygame.draw.rect(surf, color, arm_right, border_radius=3)
+        pygame.draw.rect(surf, (0, 0, 0), head.inflate(-head.width * 0.4, -head.height * 0.5))
+        pygame.draw.rect(surf, (0, 0, 0), surf.get_rect(), 1, border_radius=4)
         sprites.append(surf)
     return sprites
+
+def create_enemy_sprite(color, width, height):
+    """Create a simple shaded enemy sprite."""
+    surf = pygame.Surface([width, height], pygame.SRCALPHA)
+    body = pygame.Rect(width * 0.2, height * 0.3, width * 0.6, height * 0.7)
+    head = pygame.Rect(width * 0.3, 0, width * 0.4, height * 0.3)
+    pygame.draw.rect(surf, color, body, border_radius=3)
+    pygame.draw.rect(surf, [min(255, c + 30) for c in color], head, border_radius=3)
+    pygame.draw.rect(surf, (0, 0, 0), head.inflate(-head.width * 0.4, -head.height * 0.5))
+    pygame.draw.rect(surf, (0, 0, 0), surf.get_rect(), 1, border_radius=3)
+    return surf
 
 def start_transition(target_state, dialogue=""):
     global transition_phase, transition_target_state, transition_dialogue, transition_alpha
@@ -543,21 +577,28 @@ class ScreechEffect(pygame.sprite.Sprite):
 
 class ShamblingUndead(pygame.sprite.Sprite):
     def __init__(self, x, y, player_ref):
-        super().__init__(); self.image = pygame.Surface([40, 55]); self.image.fill(ENEMY_COLOR)
-        self.rect = self.image.get_rect(topleft=(x,y))
+        super().__init__()
+        self.image = create_enemy_sprite(ENEMY_COLOR, 40, 55)
+        self.rect = self.image.get_rect(topleft=(x, y))
+        self.base_image = self.image.copy()
         self.state = 'PATROL'; self.player = player_ref; self.detection_range = 300; self.attack_range = 30
         self.damage = 10; self.patrol_speed = 1; self.chase_speed = 2.5; self.direction = 1
         self.health = 3; self.max_health = self.health; self.death_timer = 250; self.velocity = pygame.math.Vector2(0,0)
         self.is_stunned = False; self.stun_end_time = 0; self.is_boss = False
     def update(self, tiles, **kwargs):
         current_time = pygame.time.get_ticks()
-        if self.is_stunned and current_time > self.stun_end_time: self.is_stunned = False
+        if self.is_stunned and current_time > self.stun_end_time:
+            self.is_stunned = False
         if self.state == 'DYING':
             self.death_timer -= clock.get_time(); self.image.set_alpha(255 if self.image.get_alpha() == 0 else 0)
             if self.death_timer <= 0: self.kill()
             return
-        if self.is_stunned: self.image.fill(STUN_COLOR); return
-        else: self.image.fill(ENEMY_COLOR)
+        if self.is_stunned:
+            self.image = self.base_image.copy()
+            self.image.fill(STUN_COLOR, special_flags=pygame.BLEND_RGB_ADD)
+            return
+        else:
+            self.image = self.base_image.copy()
         if not self.player.alive(): self.state = 'PATROL'
         distance_to_player = math.hypot(self.rect.centerx - self.player.rect.centerx, self.rect.centery - self.player.rect.centery)
         if distance_to_player < self.detection_range and self.player.alive(): self.state = 'CHASE'
@@ -615,8 +656,10 @@ class TormentedSpirit(pygame.sprite.Sprite):
 
 class CryptGuardian(ShamblingUndead):
     def __init__(self, x, y, player_ref):
-        super().__init__(x, y, player_ref); self.image = pygame.Surface([80, 100])
-        self.image.fill(BOSS_COLOR); self.rect = self.image.get_rect(topleft=(x,y))
+        super().__init__(x, y, player_ref)
+        self.image = create_enemy_sprite(BOSS_COLOR, 80, 100)
+        self.rect = self.image.get_rect(topleft=(x, y))
+        self.base_image = self.image.copy()
         self.health = 25; self.max_health = self.health; self.damage = 25; self.patrol_speed = 0
         self.chase_speed = 1.8; self.detection_range = 600; self.is_boss = True
     def take_damage(self, amount):
@@ -893,7 +936,7 @@ while running:
             player.health = min(player.max_health, player.health + 10)
 
     # --- Draw / Render ---
-    screen.fill(BG_COLOR_DARK)
+    screen.blit(background_surface, (0, 0))
     if current_game_state in ('GAMEPLAY', 'PAUSED', 'GAME_OVER'):
         for bg in background_rects:
             bg_x = bg['rect'].x - camera.camera_x * bg['speed'] + camera.shake_offset.x * 0.5
