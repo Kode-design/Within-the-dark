@@ -81,8 +81,24 @@ level_map = [
 LEVEL_WIDTH = len(level_map[0]) * TILE_SIZE
 LEVEL_HEIGHT = len(level_map) * TILE_SIZE
 
+# Pre-initialize empty sprite groups and placeholders so early
+# states like the opening cutscene can run before ``game_start``
+# sets up the real objects.
+all_sprites = pygame.sprite.Group()
+ui_sprites = pygame.sprite.Group()
+enemies = pygame.sprite.Group()
+projectiles = pygame.sprite.Group()
+interactables = pygame.sprite.Group()
+tiles = pygame.sprite.Group()
+gate_tiles = pygame.sprite.Group()
+player = None
+dread = None
+camera = type('DummyCamera', (), {'camera_x': 0, 'camera_y': 0})()
+boss_reference = None
+final_exit = None
+
 # Pre-initialize parallax background list so the CUTSCENE state can
-# render without errors before `game_start` populates it.
+# render without errors before ``game_start`` populates it.
 background_rects = []
 
 
@@ -642,7 +658,7 @@ while running:
 
     # Collisions
     if current_game_state == 'GAMEPLAY' and not showing_lore:
-        if 'final_exit' in globals() and player.rect.colliderect(final_exit):
+        if 'final_exit' in globals() and player and player.rect.colliderect(final_exit):
             if transition_phase is None:
                 start_transition('MAIN_MENU', "The crypt grows silent...")
         interaction_target = pygame.sprite.spritecollideany(player, interactables)
@@ -666,7 +682,7 @@ while running:
         for sprite in all_sprites:
             screen.blit(sprite.image, (sprite.rect.x - camera.camera_x, sprite.rect.y - camera.camera_y))
         if interaction_target and not showing_lore: interaction_target.draw_prompt(screen, camera)
-        if player.alive():
+        if player and player.alive():
             draw_player_health(screen, 20, 20, player.health, player.max_health)
             if boss_reference and boss_reference.alive() and boss_reference.state != 'DYING':
                 draw_boss_health(screen, boss_reference)
