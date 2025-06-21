@@ -65,6 +65,7 @@ WALL_JUMP_SPEED = 12
 HAZARD_DAMAGE = 10
 CLIMB_SPEED = 4
 DAMAGE_NUMBER_LIFETIME = 700
+RAIN_RATE = 0.3  # probability of spawning a drop each frame
 
 # --- Transition Variables ---
 transition_phase = None
@@ -130,6 +131,7 @@ hazards = pygame.sprite.Group()
 crates = pygame.sprite.Group()
 pickups = pygame.sprite.Group()
 ladders = pygame.sprite.Group()
+rain_drops = pygame.sprite.Group()
 background_rects = []
 player = None
 dread = None
@@ -717,6 +719,11 @@ def spawn_damage_number(amount, target, color=HEALTH_RED):
         pos = (target.rect.centerx, target.rect.top)
         ui_sprites.add(DamageNumber(amount, pos, color))
 
+def spawn_rain_drop():
+    if random.random() < RAIN_RATE:
+        x = random.randint(0, SCREEN_WIDTH)
+        rain_drops.add(RainDrop(x, -10))
+
 class InteractableObject(pygame.sprite.Sprite):
     def __init__(self, pos, prompt, lore):
         super().__init__(); self.image = pygame.Surface([30, 30]); self.image.fill(INTERACT_COLOR)
@@ -769,6 +776,19 @@ class HealthPickup(pygame.sprite.Sprite):
     def update(self, **kwargs):
         pass
 
+class RainDrop(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface([2, 10])
+        self.image.fill((180, 180, 255))
+        self.rect = self.image.get_rect(topleft=(x, y))
+        self.speed = random.randint(10, 15)
+
+    def update(self, **kwargs):
+        self.rect.y += self.speed
+        if self.rect.top > SCREEN_HEIGHT:
+            self.kill()
+
 class Camera:
     def __init__(self, target):
         self.target = target; self.camera_x = 0; self.camera_y = 0; self.follow_speed = 0.1
@@ -793,12 +813,13 @@ class Camera:
 # --- 5. GAME SETUP AND MAIN LOOP ---
 def game_start():
     global player, dread, all_sprites, enemies, projectiles, ui_sprites, interactables, tiles, gate_tiles
-    global hazards, crates, pickups, ladders
+    global hazards, crates, pickups, ladders, rain_drops
     global camera, background_rects, current_game_state, final_exit, boss_reference
     explored_tiles.clear()
     all_sprites = pygame.sprite.Group(); enemies = pygame.sprite.Group(); projectiles = pygame.sprite.Group();
     ui_sprites = pygame.sprite.Group(); interactables = pygame.sprite.Group(); tiles = pygame.sprite.Group();
     hazards = pygame.sprite.Group(); crates = pygame.sprite.Group(); pickups = pygame.sprite.Group(); ladders = pygame.sprite.Group()
+    rain_drops = pygame.sprite.Group()
     gate_tiles = pygame.sprite.Group(); boss_reference = None
     for row_index, row in enumerate(level_map):
         for col_index, char in enumerate(row):
@@ -825,7 +846,8 @@ def game_start():
     all_sprites.add(player, dread)
     background_rects = []
     for i in range(round(LEVEL_WIDTH / 300)):
-        background_rects.append({'rect': pygame.Rect(i * 300, 200 + i % 3 * 50, 80, 150), 'speed': 0.2})
+        background_rects.append({'rect': pygame.Rect(i * 200, 180 + i % 4 * 40, 100, 180), 'speed': 0.1})
+        background_rects.append({'rect': pygame.Rect(i * 300, 220 + i % 3 * 50, 80, 150), 'speed': 0.2})
         background_rects.append({'rect': pygame.Rect(i * 450, 300 + i % 2 * 60, 40, 100), 'speed': 0.5})
 
 # --- Main Game Variables & Loop ---
@@ -880,7 +902,9 @@ while running:
 
     # Update
     if current_game_state == 'GAMEPLAY' and not showing_lore:
+        spawn_rain_drop()
         all_sprites.update(camera=camera, tiles=tiles, enemies_group=enemies, ladders=ladders)
+        rain_drops.update()
         ui_sprites.update(); camera.update()
         explored_tiles.add((player.rect.centerx // TILE_SIZE, player.rect.centery // TILE_SIZE))
         if not player.alive(): game_over = True; current_game_state = 'GAME_OVER'
@@ -976,11 +1000,14 @@ while running:
     screen.blit(background_surface, (0, 0))
     if current_game_state in ('GAMEPLAY', 'PAUSED', 'GAME_OVER'):
         for bg in background_rects:
+            shade = int(50 + 150 * bg['speed'])
+            color = (shade, shade, shade)
             bg_x = bg['rect'].x - camera.camera_x * bg['speed'] + camera.shake_offset.x * 0.5
-            pygame.draw.rect(screen, BG_COLOR_LIGHT, (bg_x, bg['rect'].y + camera.shake_offset.y * 0.5, bg['rect'].width, bg['rect'].height))
+            pygame.draw.rect(screen, color, (bg_x, bg['rect'].y + camera.shake_offset.y * 0.5, bg['rect'].width, bg['rect'].height))
         for sprite in all_sprites:
             screen.blit(sprite.image, (sprite.rect.x - camera.camera_x + camera.shake_offset.x,
                                         sprite.rect.y - camera.camera_y + camera.shake_offset.y))
+        rain_drops.draw(screen)
         if interaction_target and not showing_lore: interaction_target.draw_prompt(screen, camera)
         if player.alive():
             draw_player_health(screen, 20, 20, player.health, player.max_health)
