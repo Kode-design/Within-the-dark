@@ -64,6 +64,7 @@ WALL_SLIDE_SPEED = 3
 WALL_JUMP_SPEED = 12
 HAZARD_DAMAGE = 10
 CLIMB_SPEED = 4
+DAMAGE_NUMBER_LIFETIME = 700
 
 # --- Transition Variables ---
 transition_phase = None
@@ -447,6 +448,7 @@ class Player(pygame.sprite.Sprite):
         if self.is_blocking: amount *= 0.25
         self.health -= amount; self.is_invincible = True; self.invincibility_timer = pygame.time.get_ticks()
         if 'camera' in globals(): camera.shake(150, 4)
+        spawn_damage_number(int(amount), self, HEALTH_RED)
         if self.health <= 0: self.kill()
 
 # --- 3. DREAD AND ABILITY CLASSES ---
@@ -623,6 +625,7 @@ class ShamblingUndead(pygame.sprite.Sprite):
     def take_damage(self, amount):
         if self.state == 'DYING': return
         self.health -= amount;
+        spawn_damage_number(int(amount), self, STUN_COLOR)
         if self.health <= 0: self.state = 'DYING'
     def get_stunned(self, duration):
         self.is_stunned = True; self.stun_end_time = pygame.time.get_ticks() + duration
@@ -650,6 +653,7 @@ class TormentedSpirit(pygame.sprite.Sprite):
     def take_damage(self, amount):
         if self.state == 'DYING': return
         self.health -= amount
+        spawn_damage_number(int(amount), self, STUN_COLOR)
         if self.health <= 0: self.state = 'DYING'
     def get_stunned(self, duration):
         self.is_stunned = True; self.stun_end_time = pygame.time.get_ticks() + duration
@@ -686,6 +690,33 @@ class Crosshair(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
     def update(self, **kwargs): self.rect.center = pygame.mouse.get_pos()
 
+class DamageNumber(pygame.sprite.Sprite):
+    def __init__(self, text, pos, color=HEALTH_RED):
+        super().__init__()
+        self.base_image = font_small.render(str(text), True, color)
+        self.image = self.base_image.copy()
+        self.world_pos = pygame.math.Vector2(pos)
+        self.rect = self.image.get_rect(center=pos)
+        self.timer = DAMAGE_NUMBER_LIFETIME
+
+    def update(self, **kwargs):
+        global camera
+        self.world_pos.y -= 0.3
+        if camera:
+            self.rect.center = (self.world_pos.x - camera.camera_x,
+                                self.world_pos.y - camera.camera_y)
+        self.timer -= clock.get_time()
+        alpha = max(0, int(255 * (self.timer / DAMAGE_NUMBER_LIFETIME)))
+        self.image = self.base_image.copy()
+        self.image.set_alpha(alpha)
+        if self.timer <= 0:
+            self.kill()
+
+def spawn_damage_number(amount, target, color=HEALTH_RED):
+    if 'ui_sprites' in globals():
+        pos = (target.rect.centerx, target.rect.top)
+        ui_sprites.add(DamageNumber(amount, pos, color))
+
 class InteractableObject(pygame.sprite.Sprite):
     def __init__(self, pos, prompt, lore):
         super().__init__(); self.image = pygame.Surface([30, 30]); self.image.fill(INTERACT_COLOR)
@@ -715,6 +746,7 @@ class BreakableCrate(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(topleft=(x,y)); self.health = 3
     def take_damage(self, amount):
         self.health -= amount
+        spawn_damage_number(int(amount), self, STUN_COLOR)
         if self.health <= 0:
             if 'pickups' in globals() and 'all_sprites' in globals():
                 hp = HealthPickup(self.rect.centerx, self.rect.centery)
@@ -835,8 +867,13 @@ while running:
                     start_transition('CUTSCENE')
         elif current_game_state == 'CUTSCENE':
             if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
-                cutscene_index += 1
-                cutscene_timer = 0
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_s:
+                    cutscene_index = len(cutscene_lines)
+                    if transition_phase is None:
+                        start_transition('GAMEPLAY')
+                else:
+                    cutscene_index += 1
+                    cutscene_timer = 0
         elif current_game_state == 'GAME_OVER':
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 game_start(); current_game_state = 'GAMEPLAY'; pygame.mouse.set_visible(False)
