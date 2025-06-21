@@ -25,3 +25,6 @@ Tier 3: UI & Game Feel
 * [ ] 7. Transitions & Cutscenes:
    * Task: Add simple transitions to smooth out the experience.
    * Details: Implement a simple "fade to black" effect when transitioning from the main menu to the game. For the ending, after the player passes the final exit trigger, fade the screen to black and display the final lines of dialogue in the text box before returning to the main menu. This creates a proper sense of narrative closure for the prologue.
+* [ ] 8. Long-Term Improvements:
+   * Task: Review ideas in `Proposed_Improvements.txt` for enhancements beyond this prologue.
+   * Details: The document lists over 1000 possible features to consider for future updates.

@@ -26,3 +26,6 @@ Implemented Content:
 * Enemy Roster: All three prologue enemies are in the game: the ground-based Shambling Undead, the floating Tormented Spirit, and the tough Crypt Guardian mini-boss.
 * Boss Fight Mechanic: The Crypt Guardian acts as a gatekeeper, and defeating it correctly removes a physical barrier (G tiles) from the level, allowing the player to proceed.
 * Functional UI: The game displays the player's health, all ability cooldowns, the crosshair, and lore text boxes.
+
+3. Future Improvements and Roadmap
+The separate file `Proposed_Improvements.txt` contains over 1000 ideas for expanding "Within The Dark" beyond the prologue. These range from new abilities and enemies to quality-of-life features. The team can consult this list when planning updates and additional episodes.
