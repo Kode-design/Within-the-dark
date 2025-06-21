@@ -102,6 +102,25 @@ MINIMAP_HEIGHT = int(LEVEL_HEIGHT * MINIMAP_SCALE)
 minimap_surface = pygame.Surface((MINIMAP_WIDTH, MINIMAP_HEIGHT))
 explored_tiles = set()
 
+# Default containers so non-gameplay states don't crash before `game_start()`
+all_sprites = pygame.sprite.Group()
+ui_sprites = pygame.sprite.Group()
+enemies = pygame.sprite.Group()
+projectiles = pygame.sprite.Group()
+interactables = pygame.sprite.Group()
+tiles = pygame.sprite.Group()
+gate_tiles = pygame.sprite.Group()
+hazards = pygame.sprite.Group()
+crates = pygame.sprite.Group()
+pickups = pygame.sprite.Group()
+ladders = pygame.sprite.Group()
+background_rects = []
+player = None
+dread = None
+camera = None
+boss_reference = None
+final_exit = None
+
 
 # --- SOUND MANAGER & UI ---
 class SoundManager:
@@ -875,7 +894,7 @@ while running:
 
     # --- Draw / Render ---
     screen.fill(BG_COLOR_DARK)
-    if current_game_state != 'MAIN_MENU':
+    if current_game_state in ('GAMEPLAY', 'PAUSED', 'GAME_OVER'):
         for bg in background_rects:
             bg_x = bg['rect'].x - camera.camera_x * bg['speed'] + camera.shake_offset.x * 0.5
             pygame.draw.rect(screen, BG_COLOR_LIGHT, (bg_x, bg['rect'].y + camera.shake_offset.y * 0.5, bg['rect'].width, bg['rect'].height))
