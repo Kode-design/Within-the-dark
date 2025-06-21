@@ -45,6 +45,8 @@ STAMINA_DASH = 20
 STAMINA_BACKSTEP = 10
 STAMINA_PARRY = 8
 PARRY_WINDOW = 200
+WALL_SLIDE_SPEED = 3
+WALL_JUMP_SPEED = 12
 HAZARD_DAMAGE = 10
 
 # --- Transition Variables ---
@@ -240,6 +242,7 @@ class Player(pygame.sprite.Sprite):
         self.backstep_cooldown = 600; self.last_backstep_time = -self.backstep_cooldown
         self.block_start_time = 0; self.parry_window = PARRY_WINDOW
         self.max_stamina = STAMINA_MAX; self.stamina = self.max_stamina; self.stamina_regen = STAMINA_REGEN
+        self.is_wall_sliding = False; self.wall_direction = 0
     def animate(self):
         self.animation_frame += self.animation_speed
         if self.animation_frame >= len(self.animations[self.current_animation]):
@@ -273,17 +276,36 @@ class Player(pygame.sprite.Sprite):
             if keys[pygame.K_a]: self.velocity.x = -current_speed
             elif keys[pygame.K_d]: self.velocity.x = current_speed
             else: self.velocity.x = 0
-            if keys[pygame.K_SPACE] and self.is_on_ground: self.velocity.y = self.jump_strength
+            if keys[pygame.K_SPACE]:
+                if self.is_on_ground:
+                    self.velocity.y = self.jump_strength
+                elif self.is_wall_sliding:
+                    self.velocity.y = self.jump_strength
+                    self.velocity.x = WALL_JUMP_SPEED * (-self.wall_direction)
         self.rect.x += self.velocity.x
+        wall_hit_left = wall_hit_right = False
         for tile in tiles:
             if self.rect.colliderect(tile.rect):
-                if self.velocity.x > 0: self.rect.right = tile.rect.left
-                if self.velocity.x < 0: self.rect.left = tile.rect.right
+                if self.velocity.x > 0:
+                    self.rect.right = tile.rect.left
+                    wall_hit_right = True
+                if self.velocity.x < 0:
+                    self.rect.left = tile.rect.right
+                    wall_hit_left = True
         self.velocity.y += GRAVITY; self.rect.y += self.velocity.y; self.is_on_ground = False
         for tile in tiles:
             if self.rect.colliderect(tile.rect):
                 if self.velocity.y > 0: self.rect.bottom = tile.rect.top; self.is_on_ground = True; self.velocity.y = 0
                 if self.velocity.y < 0: self.rect.top = tile.rect.bottom; self.velocity.y = 0
+        wall_left = any(pygame.Rect(self.rect.left-1, self.rect.top, 1, self.rect.height).colliderect(t.rect) for t in tiles)
+        wall_right = any(pygame.Rect(self.rect.right, self.rect.top, 1, self.rect.height).colliderect(t.rect) for t in tiles)
+        if not self.is_on_ground and (wall_left or wall_right) and self.velocity.y > 0:
+            self.is_wall_sliding = True
+            self.wall_direction = -1 if wall_left else 1
+            if self.velocity.y > WALL_SLIDE_SPEED:
+                self.velocity.y = WALL_SLIDE_SPEED
+        else:
+            self.is_wall_sliding = False
         self.stamina = min(self.max_stamina, self.stamina + self.stamina_regen * clock.get_time()/1000)
     def start_attack(self, event):
         if event.button == 1 and not (self.is_dashing or self.is_blocking or self.is_attacking): self.is_charging = True; self.charge_time = 0
@@ -774,6 +796,9 @@ while running:
                 player.take_damage(attacker.damage)
         if pygame.sprite.spritecollideany(player, hazards):
             player.take_damage(HAZARD_DAMAGE)
+        for enemy in enemies:
+            if pygame.sprite.spritecollideany(enemy, hazards):
+                enemy.take_damage(HAZARD_DAMAGE)
         if player.is_attacking and player.attack_hitbox:
             damage = 10 if player.charge_time >= player.charge_threshold else 3
             hit_enemies = [e for e in enemies if player.attack_hitbox.colliderect(e.rect)]
