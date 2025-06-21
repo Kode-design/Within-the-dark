@@ -1,0 +1,27 @@
+﻿Prologue Finalization Checklist
+Overview
+The prototype is mechanically complete. The following steps are focused on content, polish, and presentation to transform the functional prototype into the finished "Awakening" episode.
+Tier 1: Essential Artistic Implementation
+* [ ] 1. Final Sprites & Animation: This is the highest priority.
+   * Task: Replace all placeholder-colored squares with final pixel art sprites.
+   * Details: Create and integrate full sprite sheets for Khristopher, Dread (normal and Aspect form), all three enemies, and all ability effects (Spectral Hand, Screech, Soul Bolt, etc.). Each character needs animations for idle, walk, attack, hurt, and death states.
+* [ ] 2. Sound Design & Music:
+   * Task: Replace all placeholder-generated beeps with high-quality sound files.
+   * Details: Source or create .wav files for weapon swings, impacts, footsteps, jumps, stuns, and ability activations. Find a looping, atmospheric .ogg track to serve as the background music for the crypt, enhancing the horror theme.
+Tier 2: Level & Narrative Polish
+* [ ] 3. Full Level Design:
+   * Task: Expand the level_map to create a more deliberate and paced experience that matches the design document.
+   * Details: Build out the distinct sections: the claustrophobic Tomb Chamber start, the trap-filled Hall of Binding, the open Sanctum of Bones for the boss fight, and the crumbling Exit Passage. Use platforming challenges and enemy placement to guide the player and control the difficulty.
+* [ ] 4. Environmental Storytelling:
+   * Task: Add non-interactive visual details and the remaining memory fragments.
+   * Details: Create simple sprites for background elements like chains, bones, and cracked walls to make the environment feel more alive. Place all three InteractableObject memory fragments from the design document in their specified locations to deliver the narrative.
+Tier 3: UI & Game Feel
+* [ ] 5. UI Visuals:
+   * Task: Design and implement a visually appealing UI.
+   * Details: Create graphical assets for the health bar, cooldown icons, and menu buttons. Design a more stylized main menu background and title treatment. Add a dedicated health bar for the Crypt Guardian that appears when the boss fight begins.
+* [ ] 6. Game Feel & Balancing:
+   * Task: Fine-tune all numerical values to create a challenging but fair experience.
+   * Details: Playtest and adjust player/enemy health and damage, attack speeds, cooldown durations, knockback force, and invincibility-frame timing. The goal is to ensure the game feels responsive, and the difficulty ramps up smoothly towards the boss fight.
+* [ ] 7. Transitions & Cutscenes:
+   * Task: Add simple transitions to smooth out the experience.
+   * Details: Implement a simple "fade to black" effect when transitioning from the main menu to the game. For the ending, after the player passes the final exit trigger, fade the screen to black and display the final lines of dialogue in the text box before returning to the main menu. This creates a proper sense of narrative closure for the prologue.
