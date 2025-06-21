@@ -43,6 +43,8 @@ STAMINA_LIGHT_ATTACK = 5
 STAMINA_HEAVY_ATTACK = 15
 STAMINA_DASH = 20
 STAMINA_BACKSTEP = 10
+STAMINA_PARRY = 8
+PARRY_WINDOW = 200
 HAZARD_DAMAGE = 10
 
 # --- Transition Variables ---
@@ -108,7 +110,8 @@ class SoundManager:
             'interaction': self.create_placeholder_sound(660, 0.1),
             'screech': self.create_placeholder_sound(1200, 0.5),
             'devour': self.create_placeholder_sound(150, 0.8),
-            'awakening': self.create_placeholder_sound(60, 0.8, volume=0.6, harmonics=[1,2])
+            'awakening': self.create_placeholder_sound(60, 0.8, volume=0.6, harmonics=[1,2]),
+            'parry': self.create_placeholder_sound(880, 0.1)
         }
         self.play_music()
 
@@ -235,6 +238,7 @@ class Player(pygame.sprite.Sprite):
         self.dash_speed = 15; self.dash_duration = 150; self.dash_timer = 0; self.dash_cooldown = 800; self.last_dash_time = -self.dash_cooldown
         self.is_backstepping = False; self.backstep_duration = 120; self.backstep_timer = 0
         self.backstep_cooldown = 600; self.last_backstep_time = -self.backstep_cooldown
+        self.block_start_time = 0; self.parry_window = PARRY_WINDOW
         self.max_stamina = STAMINA_MAX; self.stamina = self.max_stamina; self.stamina_regen = STAMINA_REGEN
     def animate(self):
         self.animation_frame += self.animation_speed
@@ -301,6 +305,13 @@ class Player(pygame.sprite.Sprite):
         if 'camera' in globals(): camera.shake(200, 5)
         if self.facing_right: self.attack_hitbox = pygame.Rect(self.rect.right, self.rect.top, hitbox_width, self.rect.height)
         else: self.attack_hitbox = pygame.Rect(self.rect.left - hitbox_width, self.rect.top, hitbox_width, self.rect.height)
+
+    def start_block(self):
+        self.is_blocking = True
+        self.block_start_time = pygame.time.get_ticks()
+
+    def stop_block(self):
+        self.is_blocking = False
     def dash(self):
         if self.is_dashing or self.stamina < STAMINA_DASH: return
         current_time = pygame.time.get_ticks()
@@ -678,10 +689,10 @@ while running:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if showing_lore: showing_lore = False
                 else: player.start_attack(event)
-                if event.button == 3: player.is_blocking = True
+                if event.button == 3: player.start_block()
             if event.type == pygame.MOUSEBUTTONUP:
                 if not showing_lore: player.end_attack(event)
-                if event.button == 3: player.is_blocking = False
+                if event.button == 3: player.stop_block()
         elif current_game_state == 'PAUSED':
             if event.type == pygame.KEYDOWN and event.key == pygame.K_p: current_game_state = 'GAMEPLAY'; pygame.mouse.set_visible(False)
         elif current_game_state == 'MAIN_MENU':
@@ -750,8 +761,17 @@ while running:
                 start_transition('MAIN_MENU', "The crypt grows silent...")
         interaction_target = pygame.sprite.spritecollideany(player, interactables)
         player_hits = pygame.sprite.spritecollide(player, enemies, False)
-        active_hits = [e for e in player_hits if e.state != 'DYING'];
-        if active_hits: player.take_damage(active_hits[0].damage)
+        active_hits = [e for e in player_hits if e.state != 'DYING']
+        if active_hits:
+            attacker = active_hits[0]
+            current_time = pygame.time.get_ticks()
+            if player.is_blocking and current_time - player.block_start_time <= player.parry_window and player.stamina >= STAMINA_PARRY:
+                player.stamina -= STAMINA_PARRY
+                attacker.get_stunned(1000)
+                sound_manager.play('parry')
+                if 'camera' in globals(): camera.shake(100, 5)
+            else:
+                player.take_damage(attacker.damage)
         if pygame.sprite.spritecollideany(player, hazards):
             player.take_damage(HAZARD_DAMAGE)
         if player.is_attacking and player.attack_hitbox:
