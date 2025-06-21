@@ -239,24 +239,38 @@ def draw_minimap(surface, player, enemies):
     surface.blit(minimap_surface, (SCREEN_WIDTH - MINIMAP_WIDTH - 10, 10))
 
 def create_placeholder_sprites(color, width, height, num_frames=4):
-    """Return a list of simple humanoid sprites with basic shading."""
+    """Return a list of simple humanoid sprites with basic shading and motion."""
     sprites = []
     for i in range(num_frames):
         surf = pygame.Surface([width, height], pygame.SRCALPHA)
-        body = pygame.Rect(width * 0.25, height * 0.35, width * 0.5, height * 0.6)
-        head = pygame.Rect(width * 0.3, height * 0.05, width * 0.4, height * 0.3)
-        arm_left = pygame.Rect(0, height * 0.4, width * 0.25, height * 0.2)
-        arm_right = pygame.Rect(width * 0.75, height * 0.4, width * 0.25, height * 0.2)
+        phase = math.sin(i / num_frames * math.pi * 2)
+        body = pygame.Rect(width * 0.25, height * 0.35 + phase * 2,
+                           width * 0.5, height * 0.6)
+        head = pygame.Rect(width * 0.3, height * 0.05 + phase * 2,
+                           width * 0.4, height * 0.3)
+        arm_offset = phase * 4
+        arm_left = pygame.Rect(0, height * 0.4 - arm_offset,
+                               width * 0.25, height * 0.2)
+        arm_right = pygame.Rect(width * 0.75, height * 0.4 + arm_offset,
+                                width * 0.25, height * 0.2)
         shade = [max(0, c - 30) for c in color]
         highlight = [min(255, c + 40) for c in color]
         pygame.draw.rect(surf, shade, body, border_radius=4)
         pygame.draw.rect(surf, highlight, head, border_radius=3)
         pygame.draw.rect(surf, color, arm_left, border_radius=3)
         pygame.draw.rect(surf, color, arm_right, border_radius=3)
-        pygame.draw.rect(surf, (0, 0, 0), head.inflate(-head.width * 0.4, -head.height * 0.5))
+        pygame.draw.rect(surf, (0, 0, 0),
+                         head.inflate(-head.width * 0.4, -head.height * 0.5))
         pygame.draw.rect(surf, (0, 0, 0), surf.get_rect(), 1, border_radius=4)
         sprites.append(surf)
     return sprites
+
+def create_enemy_animations(color, width, height):
+    """Generate simple idle and walk animations for enemies."""
+    return {
+        'idle': create_placeholder_sprites(color, width, height, 2),
+        'walk': create_placeholder_sprites(color, width, height, 4)
+    }
 
 def create_enemy_sprite(color, width, height):
     """Create a simple shaded enemy sprite."""
@@ -584,13 +598,24 @@ class ScreechEffect(pygame.sprite.Sprite):
 class ShamblingUndead(pygame.sprite.Sprite):
     def __init__(self, x, y, player_ref):
         super().__init__()
-        self.image = create_enemy_sprite(ENEMY_COLOR, 40, 55)
+        self.animations = create_enemy_animations(ENEMY_COLOR, 40, 55)
+        self.current_animation = 'idle'
+        self.animation_frame = 0
+        self.animation_speed = 0.1
+        self.image = self.animations[self.current_animation][0]
         self.rect = self.image.get_rect(topleft=(x, y))
         self.base_image = self.image.copy()
         self.state = 'PATROL'; self.player = player_ref; self.detection_range = 300; self.attack_range = 30
         self.damage = 10; self.patrol_speed = 1; self.chase_speed = 2.5; self.direction = 1
         self.health = 3; self.max_health = self.health; self.death_timer = 250; self.velocity = pygame.math.Vector2(0,0)
         self.is_stunned = False; self.stun_end_time = 0; self.is_boss = False
+
+    def animate(self):
+        self.animation_frame += self.animation_speed
+        if self.animation_frame >= len(self.animations[self.current_animation]):
+            self.animation_frame = 0
+        self.image = self.animations[self.current_animation][int(self.animation_frame)]
+        self.base_image = self.image.copy()
     def update(self, tiles, **kwargs):
         current_time = pygame.time.get_ticks()
         if self.is_stunned and current_time > self.stun_end_time:
@@ -600,16 +625,17 @@ class ShamblingUndead(pygame.sprite.Sprite):
             if self.death_timer <= 0: self.kill()
             return
         if self.is_stunned:
+            self.current_animation = 'idle'
+            self.animate()
             self.image = self.base_image.copy()
             self.image.fill(STUN_COLOR, special_flags=pygame.BLEND_RGB_ADD)
             return
-        else:
-            self.image = self.base_image.copy()
         if not self.player.alive(): self.state = 'PATROL'
         distance_to_player = math.hypot(self.rect.centerx - self.player.rect.centerx, self.rect.centery - self.player.rect.centery)
         if distance_to_player < self.detection_range and self.player.alive(): self.state = 'CHASE'
         else: self.state = 'PATROL'
-        if self.state == 'PATROL': self.velocity.x = self.direction * self.patrol_speed
+        if self.state == 'PATROL':
+            self.velocity.x = self.direction * self.patrol_speed
         elif self.state == 'CHASE':
             if distance_to_player > self.attack_range:
                 if self.player.rect.centerx > self.rect.centerx: self.velocity.x = self.chase_speed
@@ -626,6 +652,8 @@ class ShamblingUndead(pygame.sprite.Sprite):
             if self.rect.colliderect(tile.rect):
                 if self.velocity.y > 0: self.rect.bottom = tile.rect.top; self.velocity.y = 0
                 if self.velocity.y < 0: self.rect.top = tile.rect.bottom; self.velocity.y = 0
+        self.current_animation = 'walk' if self.velocity.x != 0 else 'idle'
+        self.animate()
     def take_damage(self, amount):
         if self.state == 'DYING': return
         self.health -= amount;
@@ -636,12 +664,29 @@ class ShamblingUndead(pygame.sprite.Sprite):
 
 class TormentedSpirit(pygame.sprite.Sprite):
     def __init__(self, x, y, player_ref):
-        super().__init__(); self.image = pygame.Surface([35, 35], pygame.SRCALPHA)
-        pygame.draw.circle(self.image, SPIRIT_COLOR, (17, 17), 17); self.image.set_alpha(150)
-        self.rect = self.image.get_rect(center=(x,y)); self.player = player_ref
+        super().__init__()
+        self.animations = []
+        base = pygame.Surface([35, 35], pygame.SRCALPHA)
+        pygame.draw.circle(base, SPIRIT_COLOR, (17, 17), 17)
+        base.set_alpha(150)
+        for i in range(4):
+            self.animations.append(pygame.transform.rotate(base, i * 90))
+        self.current_animation = 0
+        self.animation_speed = 0.2
+        self.image = self.animations[0]
+        self.rect = self.image.get_rect(center=(x, y))
+        self.base_image = self.image.copy()
+        self.player = player_ref
         self.speed = 1.5; self.damage = 15; self.health = 2; self.max_health = self.health
         self.state = 'IDLE'; self.death_timer = 250
         self.is_stunned = False; self.stun_end_time = 0; self.is_boss = False; self.velocity = pygame.math.Vector2(0,0)
+
+    def animate(self):
+        self.current_animation += self.animation_speed
+        if self.current_animation >= len(self.animations):
+            self.current_animation = 0
+        self.image = self.animations[int(self.current_animation)]
+        self.base_image = self.image.copy()
     def update(self, **kwargs):
         current_time = pygame.time.get_ticks()
         if self.is_stunned and current_time > self.stun_end_time: self.is_stunned = False
@@ -649,11 +694,14 @@ class TormentedSpirit(pygame.sprite.Sprite):
             self.death_timer -= clock.get_time(); self.image.set_alpha(255 if self.image.get_alpha() == 0 else 0)
             if self.death_timer <= 0: self.kill()
             return
-        if self.is_stunned: return
+        if self.is_stunned:
+            self.animate()
+            return
         self.rect.move_ip(self.velocity); self.velocity *= 0.9
         if self.player.alive():
             direction = pygame.math.Vector2(self.player.rect.center) - pygame.math.Vector2(self.rect.center)
             if direction.length() > 0: self.rect.move_ip(direction.normalize() * self.speed)
+        self.animate()
     def take_damage(self, amount):
         if self.state == 'DYING': return
         self.health -= amount
@@ -665,7 +713,10 @@ class TormentedSpirit(pygame.sprite.Sprite):
 class CryptGuardian(ShamblingUndead):
     def __init__(self, x, y, player_ref):
         super().__init__(x, y, player_ref)
-        self.image = create_enemy_sprite(BOSS_COLOR, 80, 100)
+        self.animations = create_enemy_animations(BOSS_COLOR, 80, 100)
+        self.current_animation = 'idle'
+        self.animation_frame = 0
+        self.image = self.animations[self.current_animation][0]
         self.rect = self.image.get_rect(topleft=(x, y))
         self.base_image = self.image.copy()
         self.health = 25; self.max_health = self.health; self.damage = 25; self.patrol_speed = 0
