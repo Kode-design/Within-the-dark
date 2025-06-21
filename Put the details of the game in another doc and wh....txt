@@ -1,0 +1,28 @@
+﻿Within The Dark: Project Overview
+1. Core Concept
+* Title: Within The Dark
+* Genre: Horror • Fighting • Drama
+* Style: 2D Pixelated Side-Scroller
+* Logline: 10,000 years after monsters lost a brutal war against humanity, a powerful undead warrior is reawakened. As a member of a radical monster faction, he must battle through a world of uneasy peace to uncover forgotten truths and decide whether to reignite a war that could doom everyone.
+2. Current Status: A Feature-Complete Prototype
+We have successfully built a robust prototype from scratch using Python and Pygame. The core architecture is in place, and all major gameplay systems designed for the prologue are functional.
+Implemented Engine & Core Systems:
+* Game Loop & State Machine: The game correctly manages separate states for the Main Menu, active Gameplay, Paused screen, and Game Over screen.
+* Tile-Based World: The game generates levels from a simple string-based level_map, creating a world with solid platforms, walls, and verticality.
+* Side-Scrolling Camera: A smooth camera follows the player, allowing for levels larger than a single screen.
+* Physics Engine: A custom physics system handles gravity, movement, and tile-based collision for both the player and ground-based enemies.
+* Sound & Animation Placeholders: The underlying systems to play sounds and cycle through animation frames are built and working.
+Implemented Player & Dread Mechanics:
+* Full Player Moveset: Khristopher can walk, run, jump, dash, and block.
+* Aiming & Combat: The player has a mouse-controlled crosshair for aiming, a standard light attack, and a risk/reward charged heavy attack.
+* Complete Ability System: Dread's entire new cooldown-based moveset is implemented:
+   * Passive: Automatically floats and fires orbs at nearby enemies.
+   * Ability 1 (Spectral Hand): A targeted, 3-hit area-of-effect slam.
+   * Ability 2 (Screech): An area-of-effect stun and knockback.
+   * Ability 3 (Devour): A single-target execute or high-damage attack.
+   * Ability 4 (Aspect Of Dread): An ultimate "super" mode with enhanced AI and attacks.
+* Interaction: The player can approach and interact (E key) with lore objects in the world to display text.
+Implemented Content:
+* Enemy Roster: All three prologue enemies are in the game: the ground-based Shambling Undead, the floating Tormented Spirit, and the tough Crypt Guardian mini-boss.
+* Boss Fight Mechanic: The Crypt Guardian acts as a gatekeeper, and defeating it correctly removes a physical barrier (G tiles) from the level, allowing the player to proceed.
+* Functional UI: The game displays the player's health, all ability cooldowns, the crosshair, and lore text boxes.
