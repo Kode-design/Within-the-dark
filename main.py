@@ -28,6 +28,7 @@ HEALTH_GREEN = (0, 200, 0); UI_GRAY = (100, 100, 100); BG_COLOR_DARK = (10, 5, 1
 BG_COLOR_LIGHT = (40, 30, 50); CROSSHAIR_COLOR = (255, 255, 255); TEXT_COLOR = (230, 230, 230)
 MENU_OVERLAY_COLOR = (0, 0, 0, 180); INTERACT_COLOR = (255, 223, 100); SPIRIT_COLOR = (200, 255, 255)
 BOSS_COLOR = (180, 50, 50); STUN_COLOR = (255, 255, 0); COOLDOWN_COLOR = (180, 180, 180)
+UNDEAD_COLOR = (170, 220, 170); SKULL_COLOR = (230, 230, 230)
 
 
 # --- Game Clock & Constants ---
@@ -166,6 +167,23 @@ def create_placeholder_sprites(color, width, height, num_frames=4):
         sprites.append(surf)
     return sprites
 
+def create_undead_player_sprites(width, height, num_frames=4):
+    sprites = []
+    for i in range(num_frames):
+        surf = pygame.Surface([width, height], pygame.SRCALPHA)
+        body_shade = [max(0, c - i * 10) for c in UNDEAD_COLOR]
+        pygame.draw.rect(surf, body_shade, (0, 0, width, height), border_radius=6)
+        head_rect = pygame.Rect(width*0.2, height*0.05, width*0.6, height*0.4)
+        pygame.draw.rect(surf, SKULL_COLOR, head_rect, border_radius=3)
+        eye_y = head_rect.y + head_rect.height * 0.4
+        pygame.draw.circle(surf, BLACK, (int(head_rect.x + head_rect.width * 0.3), int(eye_y)), 3)
+        pygame.draw.circle(surf, BLACK, (int(head_rect.x + head_rect.width * 0.7), int(eye_y)), 3)
+        mouth_rect = pygame.Rect(head_rect.x + head_rect.width*0.2, head_rect.y + head_rect.height*0.75, head_rect.width*0.6, 3)
+        pygame.draw.rect(surf, BLACK, mouth_rect)
+        pygame.draw.rect(surf, BLACK, (0, 0, width, height), 2, border_radius=6)
+        sprites.append(surf)
+    return sprites
+
 def start_transition(target_state, dialogue=""):
     global transition_phase, transition_target_state, transition_dialogue, transition_alpha
     transition_phase = 'fade_out'
@@ -184,7 +202,11 @@ def start_cutscene():
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        self.animations = {'idle': create_placeholder_sprites(PLAYER_COLOR, 40, 60, 2), 'walk': create_placeholder_sprites(PLAYER_COLOR, 40, 60, 4), 'attack': create_placeholder_sprites(PLAYER_COLOR, 40, 60, 3)}
+        self.animations = {
+            'idle': create_undead_player_sprites(40, 60, 2),
+            'walk': create_undead_player_sprites(40, 60, 4),
+            'attack': create_undead_player_sprites(40, 60, 3)
+        }
         self.current_animation = 'idle'; self.animation_frame = 0; self.animation_speed = 0.1
         self.image = self.animations[self.current_animation][self.animation_frame]; self.rect = self.image.get_rect(topleft=(x, y))
         self.velocity = pygame.math.Vector2(0, 0); self.move_speed = 5; self.run_speed_multiplier = 1.6
